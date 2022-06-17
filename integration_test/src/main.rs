@@ -588,6 +588,7 @@ async fn test_fund_raw_transaction(cl: &Client) {
     output.insert(RANDOM_ADDRESS.to_string(), btc(1.0f64));
 
     let options = json::FundRawTransactionOptions {
+        add_inputs: Some(true),
         change_address: Some(addr),
         change_position: Some(0),
         change_type: None,
@@ -604,6 +605,7 @@ async fn test_fund_raw_transaction(cl: &Client) {
     let _ = funded.transaction().unwrap();
 
     let options = json::FundRawTransactionOptions {
+        add_inputs: Some(true),
         change_address: None,
         change_position: Some(0),
         change_type: Some(json::AddressType::Legacy),
@@ -665,6 +667,7 @@ async fn test_wallet_create_funded_psbt(cl: &Client) {
     output.insert(RANDOM_ADDRESS.to_string(), btc(1.0f64));
 
     let options = json::WalletCreateFundedPsbtOptions {
+        add_inputs: Some(true),
         change_address: None,
         change_position: Some(1),
         change_type: Some(json::AddressType::Legacy),
@@ -687,6 +690,7 @@ async fn test_wallet_create_funded_psbt(cl: &Client) {
         .await.unwrap();
 
     let options = json::WalletCreateFundedPsbtOptions {
+        add_inputs: Some(true),
         change_address: Some(addr),
         change_position: Some(1),
         change_type: None,
