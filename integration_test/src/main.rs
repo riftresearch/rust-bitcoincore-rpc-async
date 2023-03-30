@@ -526,18 +526,18 @@ async fn test_sign_raw_transaction_with_send_raw_transaction(cl: &Client) {
 
     let tx = Transaction {
         version: 1,
-        lock_time: 0,
+        lock_time: PackedLockTime(0),
         input: vec![TxIn {
             previous_output: OutPoint {
-                txid: txid,
+                txid,
                 vout: 0,
             },
             script_sig: Script::new(),
-            sequence: 0xFFFFFFFF,
+            sequence: Sequence(0xFFFFFFFF),
             witness: Witness::new(),
         }],
         output: vec![TxOut {
-            value: (unspent.amount - *FEE - *FEE).as_sat(),
+            value: (unspent.amount - *FEE - *FEE).to_sat(),
             script_pubkey: RANDOM_ADDRESS.script_pubkey(),
         }],
     };
