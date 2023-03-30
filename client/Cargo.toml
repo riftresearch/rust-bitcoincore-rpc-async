@@ -1,6 +1,6 @@
 [package]
 name = "bitcoincore-rpc-async2"
-version = "4.0.1"
+version = "4.0.2"
 authors = [
     "Jeremy Rubin <j@rubin.io>",
     "Steven Roose <steven@stevenroose.org>",
