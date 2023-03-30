@@ -10,7 +10,7 @@
 
 #![deny(unused)]
 
-use bitcoin;
+use bitcoin::{self, PackedLockTime, Sequence};
 #[macro_use]
 extern crate lazy_static;
 use log;
@@ -497,13 +497,13 @@ async fn test_sign_raw_transaction_with_send_raw_transaction(cl: &Client) {
 
     let tx = Transaction {
         version: 1,
-        lock_time: 0,
+        lock_time: PackedLockTime(0),
         input: vec![TxIn {
             previous_output: OutPoint {
                 txid: unspent.txid,
                 vout: unspent.vout,
             },
-            sequence: 0xFFFFFFFF,
+            sequence: Sequence(0xFFFFFFFF),
             script_sig: Script::new(),
             witness: Witness::new(),
         }],
