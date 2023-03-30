@@ -1,6 +1,6 @@
 [package]
 name = "bitcoincore-rpc-async2"
-version = "4.0.1"
+version = "4.0.2"
 authors = [
     "Jeremy Rubin <j@rubin.io>",
     "Steven Roose <steven@stevenroose.org>",
@@ -20,7 +20,7 @@ name = "bitcoincore_rpc_async"
 path = "src/lib.rs"
 
 [dependencies]
-bitcoincore-rpc-json = "0.15.0"
+bitcoincore-rpc-json = "0.16.0"
 async-trait = "0.1.42"
 log = "0.4.5"
 jsonrpc-async = "2.0.2"
