@@ -37,7 +37,6 @@ impl From<jsonrpc::error::Error> for Error {
     }
 }
 
-
 impl From<hex::Error> for Error {
     fn from(e: hex::Error) -> Error {
         Error::Hex(e)
