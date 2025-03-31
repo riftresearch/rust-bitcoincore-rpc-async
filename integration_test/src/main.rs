@@ -10,7 +10,6 @@
 
 #![deny(unused)]
 
-use bitcoin::{self, PackedLockTime, Sequence};
 #[macro_use]
 extern crate lazy_static;
 use log;
@@ -18,18 +17,23 @@ use tokio;
 
 use std::collections::HashMap;
 
+use bitcoincore_rpc::bitcoin;
+
 use bitcoincore_rpc::json;
 use bitcoincore_rpc::jsonrpc::error::Error as JsonRpcError;
 use bitcoincore_rpc::{Auth, Client, Error, RpcApi};
 use bitcoincore_rpc_async as bitcoincore_rpc;
 
-use bitcoin::consensus::encode::{deserialize, serialize};
-use bitcoin::hashes::hex::{FromHex, ToHex};
-use bitcoin::hashes::Hash;
-use bitcoin::secp256k1;
 use bitcoin::{
-    Address, Amount, Network, OutPoint, PrivateKey, Script, SigHashType, SignedAmount, Transaction,
-    TxIn, TxOut, Txid, Witness,
+    absolute::LockTime,
+    address::NetworkUnchecked,
+    consensus::encode::{deserialize, serialize},
+    hashes::{hex::FromHex, Hash},
+    hex::DisplayHex,
+    secp256k1,
+    transaction::Version,
+    Address, Amount, CompressedPublicKey, EcdsaSighashType, Network, OutPoint, PrivateKey,
+    ScriptBuf, Sequence, SignedAmount, Transaction, TxIn, TxOut, Txid, Witness,
 };
 use bitcoincore_rpc::json::ScanTxOutRequest;
 
@@ -37,7 +41,7 @@ lazy_static! {
     static ref SECP: secp256k1::Secp256k1<secp256k1::All> = secp256k1::Secp256k1::new();
     static ref NET: Network = Network::Regtest;
     /// A random address not owned by the node.
-    static ref RANDOM_ADDRESS: Address = "mgR9fN5UzZ64mSUUtk6NwxxS6kwVfoEtPG".parse().unwrap();
+    static ref RANDOM_ADDRESS: Address = "mgR9fN5UzZ64mSUUtk6NwxxS6kwVfoEtPG".parse::<Address<NetworkUnchecked>>().unwrap().assume_checked();
     /// The default fee amount to use when needed.
     static ref FEE: Amount = Amount::from_btc(0.001).unwrap();
 }
@@ -200,24 +204,34 @@ async fn test_get_mining_info(cl: &Client) {
 
 async fn test_get_blockchain_info(cl: &Client) {
     let info = cl.get_blockchain_info().await.unwrap();
-    assert_eq!(&info.chain, "regtest");
+    assert_eq!(info.chain, Network::Regtest);
 }
 
 async fn test_get_new_address(cl: &Client) {
-    let addr = cl.get_new_address(None, Some(json::AddressType::Legacy)).await.unwrap();
+    let addr =
+        cl.get_new_address(None, Some(json::AddressType::Legacy)).await.unwrap().assume_checked();
     assert_eq!(addr.address_type(), Some(bitcoin::AddressType::P2pkh));
 
-    let addr = cl.get_new_address(None, Some(json::AddressType::Bech32)).await.unwrap();
+    let addr =
+        cl.get_new_address(None, Some(json::AddressType::Bech32)).await.unwrap().assume_checked();
     assert_eq!(addr.address_type(), Some(bitcoin::AddressType::P2wpkh));
 
-    let addr = cl.get_new_address(None, Some(json::AddressType::P2shSegwit)).await.unwrap();
+    let addr = cl
+        .get_new_address(None, Some(json::AddressType::P2shSegwit))
+        .await
+        .unwrap()
+        .assume_checked();
     assert_eq!(addr.address_type(), Some(bitcoin::AddressType::P2sh));
 }
 
 async fn test_dump_private_key(cl: &Client) {
-    let addr = cl.get_new_address(None, Some(json::AddressType::Bech32)).await.unwrap();
+    let addr =
+        cl.get_new_address(None, Some(json::AddressType::Bech32)).await.unwrap().assume_checked();
     let sk = cl.dump_private_key(&addr).await.unwrap();
-    assert_eq!(addr, Address::p2wpkh(&sk.public_key(&SECP), *NET).unwrap());
+    assert_eq!(
+        addr,
+        Address::p2wpkh(&CompressedPublicKey::from_private_key(&SECP, &sk).unwrap(), *NET)
+    );
 }
 
 async fn test_generate(cl: &Client) {
@@ -236,8 +250,10 @@ async fn test_generate(cl: &Client) {
 async fn test_get_balance_generate_to_address(cl: &Client) {
     let initial = cl.get_balance(None, None).await.unwrap();
 
-    let blocks =
-        cl.generate_to_address(500, &cl.get_new_address(None, None).await.unwrap()).await.unwrap();
+    let blocks = cl
+        .generate_to_address(500, &cl.get_new_address(None, None).await.unwrap().assume_checked())
+        .await
+        .unwrap();
     assert_eq!(blocks.len(), 500);
     assert_ne!(cl.get_balance(None, None).await.unwrap(), initial);
 }
@@ -247,7 +263,10 @@ async fn test_get_balances_generate_to_address(cl: &Client) {
         let initial = cl.get_balances().await.unwrap();
 
         let blocks = cl
-            .generate_to_address(500, &cl.get_new_address(None, None).await.unwrap())
+            .generate_to_address(
+                500,
+                &cl.get_new_address(None, None).await.unwrap().assume_checked(),
+            )
             .await
             .unwrap();
         assert_eq!(blocks.len(), 500);
@@ -274,7 +293,7 @@ async fn test_get_block(cl: &Client) {
     let block = cl.get_block(&tip).await.unwrap();
     let hex = cl.get_block_hex(&tip).await.unwrap();
     assert_eq!(block, deserialize(&Vec::<u8>::from_hex(&hex).unwrap()).unwrap());
-    assert_eq!(hex, serialize(&block).to_hex());
+    assert_eq!(hex, serialize(&block).as_hex().to_string());
 
     let tip = cl.get_best_block_hash().await.unwrap();
     let info = cl.get_block_info(&tip).await.unwrap();
@@ -295,22 +314,28 @@ async fn test_get_block_header_get_block_header_info(cl: &Client) {
 }
 
 async fn test_get_address_info(cl: &Client) {
-    let addr = cl.get_new_address(None, Some(json::AddressType::Legacy)).await.unwrap();
+    let addr =
+        cl.get_new_address(None, Some(json::AddressType::Legacy)).await.unwrap().assume_checked();
     let info = cl.get_address_info(&addr).await.unwrap();
     assert!(!info.is_witness.unwrap());
 
-    let addr = cl.get_new_address(None, Some(json::AddressType::Bech32)).await.unwrap();
+    let addr =
+        cl.get_new_address(None, Some(json::AddressType::Bech32)).await.unwrap().assume_checked();
     let info = cl.get_address_info(&addr).await.unwrap();
     assert!(!info.witness_program.unwrap().is_empty());
 
-    let addr = cl.get_new_address(None, Some(json::AddressType::P2shSegwit)).await.unwrap();
+    let addr = cl
+        .get_new_address(None, Some(json::AddressType::P2shSegwit))
+        .await
+        .unwrap()
+        .assume_checked();
     let info = cl.get_address_info(&addr).await.unwrap();
     assert!(!info.hex.unwrap().is_empty());
 }
 
 #[allow(deprecated)]
 async fn test_set_label(cl: &Client) {
-    let addr = cl.get_new_address(Some("label"), None).await.unwrap();
+    let addr = cl.get_new_address(Some("label"), None).await.unwrap().assume_checked();
     let info = cl.get_address_info(&addr).await.unwrap();
     if version() >= 0_20_00_00 {
         assert!(info.label.is_none());
@@ -344,7 +369,7 @@ async fn test_set_label(cl: &Client) {
 }
 
 async fn test_send_to_address(cl: &Client) {
-    let addr = cl.get_new_address(None, None).await.unwrap();
+    let addr = cl.get_new_address(None, None).await.unwrap().assume_checked();
     let est = json::EstimateMode::Conservative;
     let _ = cl
         .send_to_address(&addr, btc(1.0f64), Some("cc"), None, None, None, None, None)
@@ -373,22 +398,24 @@ async fn test_send_to_address(cl: &Client) {
 }
 
 async fn test_get_received_by_address(cl: &Client) {
-    let addr = cl.get_new_address(None, None).await.unwrap();
+    let addr = cl.get_new_address(None, None).await.unwrap().assume_checked();
     let _ = cl.send_to_address(&addr, btc(1), None, None, None, None, None, None).await.unwrap();
     assert_eq!(cl.get_received_by_address(&addr, Some(0)).await.unwrap(), btc(1));
     assert_eq!(cl.get_received_by_address(&addr, Some(1)).await.unwrap(), btc(0));
-    let _ =
-        cl.generate_to_address(7, &cl.get_new_address(None, None).await.unwrap()).await.unwrap();
+    let _ = cl
+        .generate_to_address(7, &cl.get_new_address(None, None).await.unwrap().assume_checked())
+        .await
+        .unwrap();
     assert_eq!(cl.get_received_by_address(&addr, Some(6)).await.unwrap(), btc(1));
     assert_eq!(cl.get_received_by_address(&addr, None).await.unwrap(), btc(1));
 }
 
 async fn test_list_unspent(cl: &Client) {
-    let addr = cl.get_new_address(None, None).await.unwrap();
+    let addr = cl.get_new_address(None, None).await.unwrap().assume_checked();
     let txid = cl.send_to_address(&addr, btc(1), None, None, None, None, None, None).await.unwrap();
     let unspent = cl.list_unspent(Some(0), None, Some(&[&addr]), None, None).await.unwrap();
     assert_eq!(unspent[0].txid, txid);
-    assert_eq!(unspent[0].address.as_ref(), Some(&addr));
+    assert_eq!(unspent[0].address.as_ref(), Some(addr.as_unchecked()));
     assert_eq!(unspent[0].amount, btc(1));
 
     let txid = cl.send_to_address(&addr, btc(7), None, None, None, None, None, None).await.unwrap();
@@ -401,7 +428,7 @@ async fn test_list_unspent(cl: &Client) {
         cl.list_unspent(Some(0), None, Some(&[&addr]), None, Some(options)).await.unwrap();
     assert_eq!(unspent.len(), 1);
     assert_eq!(unspent[0].txid, txid);
-    assert_eq!(unspent[0].address.as_ref(), Some(&addr));
+    assert_eq!(unspent[0].address.as_ref(), Some(addr.as_unchecked()));
     assert_eq!(unspent[0].amount, btc(7));
 }
 
@@ -414,19 +441,21 @@ async fn test_get_connection_count(cl: &Client) {
 }
 
 async fn test_get_raw_transaction(cl: &Client) {
-    let addr = cl.get_new_address(None, None).await.unwrap();
+    let addr = cl.get_new_address(None, None).await.unwrap().assume_checked();
     let txid =
         cl.send_to_address(&addr, btc(1.0f64), None, None, None, None, None, None).await.unwrap();
     let tx = cl.get_raw_transaction(&txid, None).await.unwrap();
     let hex = cl.get_raw_transaction_hex(&txid, None).await.unwrap();
     assert_eq!(tx, deserialize(&Vec::<u8>::from_hex(&hex).unwrap()).unwrap());
-    assert_eq!(hex, serialize(&tx).to_hex());
+    assert_eq!(hex, serialize(&tx).as_hex().to_string());
 
     let info = cl.get_raw_transaction_info(&txid, None).await.unwrap();
     assert_eq!(info.txid, txid);
 
-    let blocks =
-        cl.generate_to_address(7, &cl.get_new_address(None, None).await.unwrap()).await.unwrap();
+    let blocks = cl
+        .generate_to_address(7, &cl.get_new_address(None, None).await.unwrap().assume_checked())
+        .await
+        .unwrap();
     let _ = cl.get_raw_transaction_info(&txid, Some(&blocks[0])).await.unwrap();
 }
 
@@ -482,8 +511,10 @@ async fn test_get_tx_out_proof(cl: &Client) {
         .send_to_address(&RANDOM_ADDRESS, btc(1.0f64), None, None, None, None, None, None)
         .await
         .unwrap();
-    let blocks =
-        cl.generate_to_address(7, &cl.get_new_address(None, None).await.unwrap()).await.unwrap();
+    let blocks = cl
+        .generate_to_address(7, &cl.get_new_address(None, None).await.unwrap().assume_checked())
+        .await
+        .unwrap();
     let proof = cl.get_tx_out_proof(&[txid1, txid2], Some(&blocks[0])).await.unwrap();
     assert!(!proof.is_empty());
 }
@@ -501,7 +532,7 @@ async fn test_get_mempool_entry(cl: &Client) {
 }
 
 async fn test_lock_unspent_unlock_unspent(cl: &Client) {
-    let addr = cl.get_new_address(None, None).await.unwrap();
+    let addr = cl.get_new_address(None, None).await.unwrap().assume_checked();
     let txid =
         cl.send_to_address(&addr, btc(1.0f64), None, None, None, None, None, None).await.unwrap();
 
@@ -510,8 +541,10 @@ async fn test_lock_unspent_unlock_unspent(cl: &Client) {
 }
 
 async fn test_get_block_filter(cl: &Client) {
-    let blocks =
-        cl.generate_to_address(7, &cl.get_new_address(None, None).await.unwrap()).await.unwrap();
+    let blocks = cl
+        .generate_to_address(7, &cl.get_new_address(None, None).await.unwrap().assume_checked())
+        .await
+        .unwrap();
     if version() >= 190000 {
         let _ = cl.get_block_filter(&blocks[0]).await.unwrap();
     } else {
@@ -521,11 +554,14 @@ async fn test_get_block_filter(cl: &Client) {
 
 async fn test_sign_raw_transaction_with_send_raw_transaction(cl: &Client) {
     let sk = PrivateKey {
-        network: Network::Regtest,
+        network: Network::Regtest.into(),
         inner: secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng()),
         compressed: true,
     };
-    let addr = Address::p2wpkh(&sk.public_key(&SECP), Network::Regtest).unwrap();
+    let addr = Address::p2wpkh(
+        &CompressedPublicKey::from_private_key(&SECP, &sk).unwrap(),
+        Network::Regtest,
+    );
 
     let options = json::ListUnspentQueryOptions {
         minimum_amount: Some(btc(2)),
@@ -535,19 +571,19 @@ async fn test_sign_raw_transaction_with_send_raw_transaction(cl: &Client) {
     let unspent = unspent.into_iter().nth(0).unwrap();
 
     let tx = Transaction {
-        version: 1,
-        lock_time: PackedLockTime(0),
+        version: Version::ONE,
+        lock_time: LockTime::from_time(0).unwrap(),
         input: vec![TxIn {
             previous_output: OutPoint {
                 txid: unspent.txid,
                 vout: unspent.vout,
             },
-            sequence: Sequence(0xFFFFFFFF),
-            script_sig: Script::new(),
+            sequence: Sequence::MAX,
+            script_sig: ScriptBuf::new(),
             witness: Witness::new(),
         }],
         output: vec![TxOut {
-            value: (unspent.amount - *FEE).as_sat(),
+            value: (unspent.amount - *FEE),
             script_pubkey: addr.script_pubkey(),
         }],
     };
@@ -564,25 +600,25 @@ async fn test_sign_raw_transaction_with_send_raw_transaction(cl: &Client) {
     let txid = cl.send_raw_transaction(&res.transaction().unwrap()).await.unwrap();
 
     let tx = Transaction {
-        version: 1,
-        lock_time: PackedLockTime(0),
+        version: Version::ONE,
+        lock_time: LockTime::from_time(0).unwrap(),
         input: vec![TxIn {
             previous_output: OutPoint {
                 txid,
                 vout: 0,
             },
-            script_sig: Script::new(),
-            sequence: Sequence(0xFFFFFFFF),
+            script_sig: ScriptBuf::new(),
+            sequence: Sequence::MAX,
             witness: Witness::new(),
         }],
         output: vec![TxOut {
-            value: (unspent.amount - *FEE - *FEE).to_sat(),
+            value: (unspent.amount - *FEE - *FEE),
             script_pubkey: RANDOM_ADDRESS.script_pubkey(),
         }],
     };
 
     let res = cl
-        .sign_raw_transaction_with_key(&tx, &[sk], None, Some(SigHashType::All.into()))
+        .sign_raw_transaction_with_key(&tx, &[sk], None, Some(EcdsaSighashType::All.into()))
         .await
         .unwrap();
     assert!(res.complete);
@@ -623,11 +659,11 @@ async fn test_create_raw_transaction(cl: &Client) {
     let hex =
         cl.create_raw_transaction_hex(&[input], &output, Some(500_000), Some(true)).await.unwrap();
     assert_eq!(tx, deserialize(&Vec::<u8>::from_hex(&hex).unwrap()).unwrap());
-    assert_eq!(hex, serialize(&tx).to_hex());
+    assert_eq!(hex, serialize(&tx).as_hex().to_string());
 }
 
 async fn test_fund_raw_transaction(cl: &Client) {
-    let addr = cl.get_new_address(None, None).await.unwrap();
+    let addr = cl.get_new_address(None, None).await.unwrap().assume_checked();
     let mut output = HashMap::new();
     output.insert(RANDOM_ADDRESS.to_string(), btc(1.0f64));
 
@@ -805,7 +841,7 @@ async fn test_finalize_psbt(cl: &Client) {
 }
 
 async fn test_list_received_by_address(cl: &Client) {
-    let addr = cl.get_new_address(None, None).await.unwrap();
+    let addr = cl.get_new_address(None, None).await.unwrap().assume_checked();
     let txid =
         cl.send_to_address(&addr, btc(1.0f64), None, None, None, None, None, None).await.unwrap();
 
@@ -820,7 +856,7 @@ async fn test_list_received_by_address(cl: &Client) {
 
 async fn test_import_public_key(cl: &Client) {
     let sk = PrivateKey {
-        network: Network::Regtest,
+        network: Network::Regtest.into(),
         inner: secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng()),
         compressed: true,
     };
@@ -831,7 +867,7 @@ async fn test_import_public_key(cl: &Client) {
 
 async fn test_import_priv_key(cl: &Client) {
     let sk = PrivateKey {
-        network: Network::Regtest,
+        network: Network::Regtest.into(),
         inner: secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng()),
         compressed: true,
     };
@@ -842,7 +878,7 @@ async fn test_import_priv_key(cl: &Client) {
 
 async fn test_import_address(cl: &Client) {
     let sk = PrivateKey {
-        network: Network::Regtest,
+        network: Network::Regtest.into(),
         inner: secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng()),
         compressed: true,
     };
@@ -854,7 +890,7 @@ async fn test_import_address(cl: &Client) {
 
 async fn test_import_address_script(cl: &Client) {
     let sk = PrivateKey {
-        network: Network::Regtest,
+        network: Network::Regtest.into(),
         inner: secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng()),
         compressed: true,
     };
@@ -1021,10 +1057,12 @@ async fn test_uptime(cl: &Client) {
 }
 
 async fn test_scantxoutset(cl: &Client) {
-    let addr = cl.get_new_address(None, None).await.unwrap();
+    let addr = cl.get_new_address(None, None).await.unwrap().assume_checked();
 
     cl.generate_to_address(2, &addr).await.unwrap();
-    cl.generate_to_address(7, &cl.get_new_address(None, None).await.unwrap()).await.unwrap();
+    cl.generate_to_address(7, &cl.get_new_address(None, None).await.unwrap().assume_checked())
+        .await
+        .unwrap();
 
     let utxos = cl
         .scan_tx_out_set_blocking(&[ScanTxOutRequest::Single(format!("addr({})", addr))])

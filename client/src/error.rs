@@ -20,12 +20,12 @@ use serde_json;
 #[derive(Debug)]
 pub enum Error {
     JsonRpc(jsonrpc::error::Error),
-    Hex(hex::Error),
+    Hex(hex::error::HexToBytesError),
     Json(serde_json::error::Error),
     BitcoinSerialization(bitcoin::consensus::encode::Error),
     Secp256k1(secp256k1::Error),
     Io(io::Error),
-    InvalidAmount(bitcoin::util::amount::ParseAmountError),
+    InvalidAmount(bitcoin::amount::ParseAmountError),
     InvalidCookieFile,
     /// The JSON result had an unexpected structure.
     UnexpectedStructure,
@@ -37,8 +37,8 @@ impl From<jsonrpc::error::Error> for Error {
     }
 }
 
-impl From<hex::Error> for Error {
-    fn from(e: hex::Error) -> Error {
+impl From<hex::error::HexToBytesError> for Error {
+    fn from(e: hex::error::HexToBytesError) -> Error {
         Error::Hex(e)
     }
 }
@@ -67,8 +67,8 @@ impl From<io::Error> for Error {
     }
 }
 
-impl From<bitcoin::util::amount::ParseAmountError> for Error {
-    fn from(e: bitcoin::util::amount::ParseAmountError) -> Error {
+impl From<bitcoin::amount::ParseAmountError> for Error {
+    fn from(e: bitcoin::amount::ParseAmountError) -> Error {
         Error::InvalidAmount(e)
     }
 }

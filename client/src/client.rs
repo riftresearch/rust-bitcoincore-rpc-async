@@ -8,7 +8,10 @@
 // If not, see <http://creativecommons.org/publicdomain/zero/1.0/>.
 //
 
-use serde_json::value::RawValue;
+use bitcoincore_rpc_json::bitcoin::address::NetworkUnchecked;
+use bitcoincore_rpc_json::bitcoin::block::Header;
+use bitcoincore_rpc_json::bitcoin::hex::DisplayHex;
+use bitcoincore_rpc_json::bitcoin::secp256k1::ecdsa::Signature;
 use std::collections::HashMap;
 use std::fs::File;
 use std::iter::FromIterator;
@@ -22,11 +25,8 @@ use serde::*;
 use serde_json;
 
 use async_trait::async_trait;
-use bitcoin::hashes::hex::{FromHex, ToHex};
-use bitcoin::secp256k1::Signature;
-use bitcoin::{
-    Address, Amount, Block, BlockHeader, OutPoint, PrivateKey, PublicKey, Script, Transaction,
-};
+use bitcoin::hashes::hex::FromHex;
+use bitcoin::{Address, Amount, Block, OutPoint, PrivateKey, PublicKey, Script, Transaction};
 use log::Level::{Debug, Trace, Warn};
 use log::{debug, log_enabled, trace};
 
@@ -161,19 +161,19 @@ pub trait RawTx: Sized + Clone {
 
 impl<'a> RawTx for &'a Transaction {
     fn raw_hex(self) -> String {
-        bitcoin::consensus::encode::serialize(self).to_hex()
+        bitcoin::consensus::encode::serialize(self).as_hex().to_string()
     }
 }
 
 impl<'a> RawTx for &'a [u8] {
     fn raw_hex(self) -> String {
-        self.to_hex()
+        self.as_hex().to_string()
     }
 }
 
 impl<'a> RawTx for &'a Vec<u8> {
     fn raw_hex(self) -> String {
-        self.to_hex()
+        self.as_hex().to_string()
     }
 }
 
@@ -342,7 +342,7 @@ pub trait RpcApi: Sized {
     }
     //TODO(stevenroose) add getblock_txs
 
-    async fn get_block_header(&self, hash: &bitcoin::BlockHash) -> Result<BlockHeader> {
+    async fn get_block_header(&self, hash: &bitcoin::BlockHash) -> Result<Header> {
         let hex: String = self.call("getblockheader", &[into_json(hash)?, false.into()]).await?;
         let bytes: Vec<u8> = FromHex::from_hex(&hex)?;
         Ok(bitcoin::consensus::encode::deserialize(&bytes)?)
@@ -610,7 +610,7 @@ pub trait RpcApi: Sized {
         p2sh: Option<bool>,
     ) -> Result<()> {
         let mut args = [
-            script.to_hex().into(),
+            script.to_hex_string().into(),
             opt_into_json(label)?,
             opt_into_json(rescan)?,
             opt_into_json(p2sh)?,
@@ -705,7 +705,7 @@ pub trait RpcApi: Sized {
         replaceable: Option<bool>,
     ) -> Result<String> {
         let outs_converted = serde_json::Map::from_iter(
-            outs.iter().map(|(k, v)| (k.clone(), serde_json::Value::from(v.as_btc()))),
+            outs.iter().map(|(k, v)| (k.clone(), serde_json::Value::from(v.to_btc()))),
         );
         let mut args = [
             into_json(utxos)?,
@@ -830,7 +830,7 @@ pub trait RpcApi: Sized {
         &self,
         label: Option<&str>,
         address_type: Option<json::AddressType>,
-    ) -> Result<Address> {
+    ) -> Result<Address<NetworkUnchecked>> {
         self.call("getnewaddress", &[opt_into_json(label)?, opt_into_json(address_type)?]).await
     }
 
@@ -892,7 +892,7 @@ pub trait RpcApi: Sized {
     ) -> Result<bitcoin::Txid> {
         let mut args = [
             address.to_string().into(),
-            into_json(amount.as_btc())?,
+            into_json(amount.to_btc())?,
             opt_into_json(comment)?,
             opt_into_json(comment_to)?,
             opt_into_json(subtract_fee)?,
@@ -983,7 +983,7 @@ pub trait RpcApi: Sized {
         bip32derivs: Option<bool>,
     ) -> Result<json::WalletCreateFundedPsbtResult> {
         let outputs_converted = serde_json::Map::from_iter(
-            outputs.iter().map(|(k, v)| (k.clone(), serde_json::Value::from(v.as_btc()))),
+            outputs.iter().map(|(k, v)| (k.clone(), serde_json::Value::from(v.to_btc()))),
         );
         let mut args = [
             into_json(inputs)?,
@@ -1020,7 +1020,7 @@ pub trait RpcApi: Sized {
         &self,
         descriptor: &str,
         range: Option<[u32; 2]>,
-    ) -> Result<Vec<Address>> {
+    ) -> Result<Vec<Address<NetworkUnchecked>>> {
         let mut args = [into_json(descriptor)?, opt_into_json(range)?];
         self.call("deriveaddresses", handle_defaults(&mut args, &[null()])).await
     }
