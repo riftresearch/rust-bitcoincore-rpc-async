@@ -50,7 +50,7 @@ impl<C: RpcApi + std::marker::Sync> Queryable<C> for bitcoin::blockdata::transac
 }
 
 #[async_trait]
-impl<C: RpcApi + std::marker::Sync> Queryable<C> for Option<json::GetTxOutResult> {
+impl<C: RpcApi + std::marker::Sync> Queryable<C> for Option<json::GetTxOut> {
     type Id = bitcoin::OutPoint;
 
     async fn query(rpc: &C, id: &Self::Id) -> Result<Self> {

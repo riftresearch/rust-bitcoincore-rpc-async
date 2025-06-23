@@ -13,8 +13,8 @@
 //! This is a client library for the Bitcoin Core JSON-RPC API.
 //!
 
-pub use bitcoincore_rpc_json as json;
-pub use json::bitcoin;
+pub use corepc_types::bitcoin;
+pub use corepc_types::v29 as json;
 pub use jsonrpc_async as jsonrpc;
 
 mod client;

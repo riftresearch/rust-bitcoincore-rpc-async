@@ -6,7 +6,8 @@ edition="2018"
 publish=false
 
 [dependencies]
-bitcoincore-rpc-async = { package = "bitcoincore-rpc-async2", path = "../client" }
+bitcoincore-rpc-async = { package = "bitcoincore-rpc-async", path = "../client" }
+corepc-types = {git = "https://github.com/riftresearch/corepc", rev = "ae028263e24da26fed31a9c32232ecdefcb1cb37"}
 lazy_static = "1.4.0"
 log = "0.4"
 tokio = { version = "1", features = ["full"] }

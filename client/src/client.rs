@@ -8,25 +8,28 @@
 // If not, see <http://creativecommons.org/publicdomain/zero/1.0/>.
 //
 
-use bitcoincore_rpc_json::bitcoin::address::NetworkUnchecked;
-use bitcoincore_rpc_json::bitcoin::block::Header;
-use bitcoincore_rpc_json::bitcoin::hex::DisplayHex;
-use bitcoincore_rpc_json::bitcoin::secp256k1::ecdsa::Signature;
-use std::collections::HashMap;
+// claude: you can access the rust-bitcoin crate via corepc_types::bitcoin
+// claude: you can access the corepc-types for the rpc commands via corepc_types::v29
+use corepc_types::bitcoin::address::NetworkUnchecked;
+use corepc_types::bitcoin::block::Header;
+use corepc_types::bitcoin::hex::DisplayHex;
+use corepc_types::bitcoin::secp256k1::ecdsa::Signature;
+use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::iter::FromIterator;
 use std::path::PathBuf;
 use std::{fmt, result};
 
-use super::bitcoin;
-use bitcoincore_rpc_json as json;
+use corepc_types::v29 as json;
 use jsonrpc_async as jsonrpc;
 use serde::*;
 use serde_json;
 
 use async_trait::async_trait;
-use bitcoin::hashes::hex::FromHex;
-use bitcoin::{Address, Amount, Block, OutPoint, PrivateKey, PublicKey, Script, Transaction};
+use corepc_types::bitcoin::hashes::hex::FromHex;
+use corepc_types::bitcoin::{
+    Address, Amount, Block, OutPoint, PrivateKey, PublicKey, Script, Transaction,
+};
 use log::Level::{Debug, Trace, Warn};
 use log::{debug, log_enabled, trace};
 
@@ -39,7 +42,7 @@ pub type Result<T> = result::Result<T, Error>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct JsonOutPoint {
-    pub txid: bitcoin::Txid,
+    pub txid: corepc_types::bitcoin::Txid,
     pub vout: u32,
 }
 
@@ -161,7 +164,7 @@ pub trait RawTx: Sized + Clone {
 
 impl<'a> RawTx for &'a Transaction {
     fn raw_hex(self) -> String {
-        bitcoin::consensus::encode::serialize(self).as_hex().to_string()
+        corepc_types::bitcoin::consensus::encode::serialize(self).as_hex().to_string()
     }
 }
 
@@ -238,7 +241,7 @@ pub trait RpcApi: Sized {
         T::query(&self, &id).await
     }
 
-    async fn get_network_info(&self) -> Result<json::GetNetworkInfoResult> {
+    async fn get_network_info(&self) -> Result<json::GetNetworkInfo> {
         self.call("getnetworkinfo", &[]).await
     }
 
@@ -251,23 +254,15 @@ pub trait RpcApi: Sized {
         Ok(res.version)
     }
 
-    async fn add_multisig_address(
+    async fn add_multisig_address_with_addresses(
         &self,
-        nrequired: usize,
-        keys: &[json::PubKeyOrAddress<'_>],
-        label: Option<&str>,
-        address_type: Option<json::AddressType>,
-    ) -> Result<json::AddMultiSigAddressResult> {
-        let mut args = [
-            into_json(nrequired)?,
-            into_json(keys)?,
-            opt_into_json(label)?,
-            opt_into_json(address_type)?,
-        ];
-        self.call("addmultisigaddress", handle_defaults(&mut args, &[into_json("")?, null()])).await
+        nrequired: u32,
+        addresses: &[Address<NetworkUnchecked>],
+    ) -> Result<json::AddMultisigAddress> {
+        self.call("addmultisigaddress", &[into_json(nrequired)?, into_json(addresses)?]).await
     }
 
-    async fn load_wallet(&self, wallet: &str) -> Result<json::LoadWalletResult> {
+    async fn load_wallet(&self, wallet: &str) -> Result<json::LoadWallet> {
         self.call("loadwallet", &[wallet.into()]).await
     }
 
@@ -283,7 +278,7 @@ pub trait RpcApi: Sized {
         blank: Option<bool>,
         passphrase: Option<&str>,
         avoid_reuse: Option<bool>,
-    ) -> Result<json::LoadWalletResult> {
+    ) -> Result<json::LoadWallet> {
         let mut args = [
             wallet.into(),
             opt_into_json(disable_private_keys)?,
@@ -302,7 +297,7 @@ pub trait RpcApi: Sized {
         self.call("listwallets", &[]).await
     }
 
-    async fn get_wallet_info(&self) -> Result<json::GetWalletInfoResult> {
+    async fn get_wallet_info(&self) -> Result<json::GetWalletInfo> {
         self.call("getwalletinfo", &[]).await
     }
 
@@ -327,109 +322,45 @@ pub trait RpcApi: Sized {
         self.call("getconnectioncount", &[]).await
     }
 
-    async fn get_block(&self, hash: &bitcoin::BlockHash) -> Result<Block> {
+    async fn get_block(&self, hash: &corepc_types::bitcoin::BlockHash) -> Result<Block> {
         let hex: String = self.call("getblock", &[into_json(hash)?, 0.into()]).await?;
         let bytes: Vec<u8> = FromHex::from_hex(&hex)?;
-        Ok(bitcoin::consensus::encode::deserialize(&bytes)?)
+        Ok(corepc_types::bitcoin::consensus::encode::deserialize(&bytes)?)
     }
 
-    async fn get_block_hex(&self, hash: &bitcoin::BlockHash) -> Result<String> {
+    async fn get_block_hex(&self, hash: &corepc_types::bitcoin::BlockHash) -> Result<String> {
         self.call("getblock", &[into_json(hash)?, 0.into()]).await
     }
 
-    async fn get_block_info(&self, hash: &bitcoin::BlockHash) -> Result<json::GetBlockResult> {
+    async fn get_block_verbose_one(
+        &self,
+        hash: &corepc_types::bitcoin::BlockHash,
+    ) -> Result<json::GetBlockVerboseOne> {
         self.call("getblock", &[into_json(hash)?, 1.into()]).await
     }
     //TODO(stevenroose) add getblock_txs
 
-    async fn get_block_header(&self, hash: &bitcoin::BlockHash) -> Result<Header> {
+    async fn get_block_header(&self, hash: &corepc_types::bitcoin::BlockHash) -> Result<Header> {
         let hex: String = self.call("getblockheader", &[into_json(hash)?, false.into()]).await?;
         let bytes: Vec<u8> = FromHex::from_hex(&hex)?;
-        Ok(bitcoin::consensus::encode::deserialize(&bytes)?)
+        Ok(corepc_types::bitcoin::consensus::encode::deserialize(&bytes)?)
     }
 
-    async fn get_block_header_info(
+    async fn get_block_header_verbose(
         &self,
-        hash: &bitcoin::BlockHash,
-    ) -> Result<json::GetBlockHeaderResult> {
+        hash: &corepc_types::bitcoin::BlockHash,
+    ) -> Result<json::GetBlockHeaderVerbose> {
         self.call("getblockheader", &[into_json(hash)?, true.into()]).await
     }
 
-    async fn get_mining_info(&self) -> Result<json::GetMiningInfoResult> {
+    async fn get_mining_info(&self) -> Result<json::GetMiningInfo> {
         self.call("getmininginfo", &[]).await
     }
 
     /// Returns a data structure containing various state info regarding
     /// blockchain processing.
-    async fn get_blockchain_info(&self) -> Result<json::GetBlockchainInfoResult> {
-        let mut raw: serde_json::Value = self.call("getblockchaininfo", &[]).await?;
-        // The softfork fields are not backwards compatible:
-        // - 0.18.x returns a "softforks" array and a "bip9_softforks" map.
-        // - 0.19.x returns a "softforks" map.
-        Ok(if self.version().await? < 190000 {
-            use Error::UnexpectedStructure as err;
-
-            // First, remove both incompatible softfork fields.
-            // We need to scope the mutable ref here for v1.29 borrowck.
-            let (bip9_softforks, old_softforks) = {
-                let map = raw.as_object_mut().ok_or(err)?;
-                let bip9_softforks = map.remove("bip9_softforks").ok_or(err)?;
-                let old_softforks = map.remove("softforks").ok_or(err)?;
-                // Put back an empty "softforks" field.
-                map.insert("softforks".into(), serde_json::Map::new().into());
-                (bip9_softforks, old_softforks)
-            };
-            let mut ret: json::GetBlockchainInfoResult = serde_json::from_value(raw)?;
-
-            // Then convert both softfork types and add them.
-            for sf in old_softforks.as_array().ok_or(err)?.iter() {
-                let json = sf.as_object().ok_or(err)?;
-                let id = json.get("id").ok_or(err)?.as_str().ok_or(err)?;
-                let reject = json.get("reject").ok_or(err)?.as_object().ok_or(err)?;
-                let active = reject.get("status").ok_or(err)?.as_bool().ok_or(err)?;
-                ret.softforks.insert(
-                    id.into(),
-                    json::Softfork {
-                        type_: json::SoftforkType::Buried,
-                        bip9: None,
-                        height: None,
-                        active: active,
-                    },
-                );
-            }
-            for (id, sf) in bip9_softforks.as_object().ok_or(err)?.iter() {
-                #[derive(Deserialize)]
-                struct OldBip9SoftFork {
-                    pub status: json::Bip9SoftforkStatus,
-                    pub bit: Option<u8>,
-                    #[serde(rename = "startTime")]
-                    pub start_time: i64,
-                    pub timeout: u64,
-                    pub since: u32,
-                    pub statistics: Option<json::Bip9SoftforkStatistics>,
-                }
-                let sf: OldBip9SoftFork = serde_json::from_value(sf.clone())?;
-                ret.softforks.insert(
-                    id.clone(),
-                    json::Softfork {
-                        type_: json::SoftforkType::Bip9,
-                        bip9: Some(json::Bip9SoftforkInfo {
-                            status: sf.status,
-                            bit: sf.bit,
-                            start_time: sf.start_time,
-                            timeout: sf.timeout,
-                            since: sf.since,
-                            statistics: sf.statistics,
-                        }),
-                        height: None,
-                        active: sf.status == json::Bip9SoftforkStatus::Active,
-                    },
-                );
-            }
-            ret
-        } else {
-            serde_json::from_value(raw)?
-        })
+    async fn get_blockchain_info(&self) -> Result<json::GetBlockchainInfo> {
+        self.call("getblockchaininfo", &[]).await
     }
 
     /// Returns the numbers of block in the longest chain.
@@ -438,49 +369,42 @@ pub trait RpcApi: Sized {
     }
 
     /// Returns the hash of the best (tip) block in the longest blockchain.
-    async fn get_best_block_hash(&self) -> Result<bitcoin::BlockHash> {
+    async fn get_best_block_hash(&self) -> Result<corepc_types::bitcoin::BlockHash> {
         self.call("getbestblockhash", &[]).await
     }
 
     /// Get block hash at a given height
-    async fn get_block_hash(&self, height: u64) -> Result<bitcoin::BlockHash> {
+    async fn get_block_hash(&self, height: u64) -> Result<corepc_types::bitcoin::BlockHash> {
         self.call("getblockhash", &[height.into()]).await
     }
 
     async fn get_raw_transaction(
         &self,
-        txid: &bitcoin::Txid,
-        block_hash: Option<&bitcoin::BlockHash>,
-    ) -> Result<Transaction> {
-        let mut args = [into_json(txid)?, into_json(false)?, opt_into_json(block_hash)?];
-        let hex: String =
-            self.call("getrawtransaction", handle_defaults(&mut args, &[null()])).await?;
-        let bytes: Vec<u8> = FromHex::from_hex(&hex)?;
-        Ok(bitcoin::consensus::encode::deserialize(&bytes)?)
+        txid: &corepc_types::bitcoin::Txid,
+    ) -> Result<json::GetRawTransaction> {
+        self.call("getrawtransaction", &[into_json(txid)?]).await
     }
 
     async fn get_raw_transaction_hex(
         &self,
-        txid: &bitcoin::Txid,
-        block_hash: Option<&bitcoin::BlockHash>,
+        txid: &corepc_types::bitcoin::Txid,
+        block_hash: Option<&corepc_types::bitcoin::BlockHash>,
     ) -> Result<String> {
         let mut args = [into_json(txid)?, into_json(false)?, opt_into_json(block_hash)?];
         self.call("getrawtransaction", handle_defaults(&mut args, &[null()])).await
     }
 
-    async fn get_raw_transaction_info(
+    async fn get_raw_transaction_verbose(
         &self,
-        txid: &bitcoin::Txid,
-        block_hash: Option<&bitcoin::BlockHash>,
-    ) -> Result<json::GetRawTransactionResult> {
-        let mut args = [into_json(txid)?, into_json(true)?, opt_into_json(block_hash)?];
-        self.call("getrawtransaction", handle_defaults(&mut args, &[null()])).await
+        txid: &corepc_types::bitcoin::Txid,
+    ) -> Result<json::GetRawTransactionVerbose> {
+        self.call("getrawtransaction", &[into_json(txid)?, true.into()]).await
     }
 
     async fn get_block_filter(
         &self,
-        block_hash: &bitcoin::BlockHash,
-    ) -> Result<json::GetBlockFilterResult> {
+        block_hash: &corepc_types::bitcoin::BlockHash,
+    ) -> Result<json::GetBlockFilter> {
         self.call("getblockfilter", &[into_json(block_hash)?]).await
     }
 
@@ -495,7 +419,7 @@ pub trait RpcApi: Sized {
         )?)
     }
 
-    async fn get_balances(&self) -> Result<json::GetBalancesResult> {
+    async fn get_balances(&self) -> Result<json::GetBalances> {
         Ok(self.call("getbalances", &[]).await?)
     }
 
@@ -512,9 +436,9 @@ pub trait RpcApi: Sized {
 
     async fn get_transaction(
         &self,
-        txid: &bitcoin::Txid,
+        txid: &corepc_types::bitcoin::Txid,
         include_watchonly: Option<bool>,
-    ) -> Result<json::GetTransactionResult> {
+    ) -> Result<json::GetTransaction> {
         let mut args = [into_json(txid)?, opt_into_json(include_watchonly)?];
         self.call("gettransaction", handle_defaults(&mut args, &[null()])).await
     }
@@ -525,7 +449,7 @@ pub trait RpcApi: Sized {
         count: Option<usize>,
         skip: Option<usize>,
         include_watchonly: Option<bool>,
-    ) -> Result<Vec<json::ListTransactionResult>> {
+    ) -> Result<Vec<json::ListTransactionsItem>> {
         let mut args = [
             label.unwrap_or("*").into(),
             opt_into_json(count)?,
@@ -538,11 +462,11 @@ pub trait RpcApi: Sized {
 
     async fn list_since_block(
         &self,
-        blockhash: Option<&bitcoin::BlockHash>,
+        blockhash: Option<&corepc_types::bitcoin::BlockHash>,
         target_confirmations: Option<usize>,
         include_watchonly: Option<bool>,
         include_removed: Option<bool>,
-    ) -> Result<json::ListSinceBlockResult> {
+    ) -> Result<json::ListSinceBlock> {
         let mut args = [
             opt_into_json(blockhash)?,
             opt_into_json(target_confirmations)?,
@@ -554,18 +478,18 @@ pub trait RpcApi: Sized {
 
     async fn get_tx_out(
         &self,
-        txid: &bitcoin::Txid,
+        txid: &corepc_types::bitcoin::Txid,
         vout: u32,
         include_mempool: Option<bool>,
-    ) -> Result<Option<json::GetTxOutResult>> {
+    ) -> Result<Option<json::GetTxOut>> {
         let mut args = [into_json(txid)?, into_json(vout)?, opt_into_json(include_mempool)?];
         opt_result(self.call("gettxout", handle_defaults(&mut args, &[null()])).await?)
     }
 
     async fn get_tx_out_proof(
         &self,
-        txids: &[bitcoin::Txid],
-        block_hash: Option<&bitcoin::BlockHash>,
+        txids: &[corepc_types::bitcoin::Txid],
+        block_hash: Option<&corepc_types::bitcoin::BlockHash>,
     ) -> Result<Vec<u8>> {
         let mut args = [into_json(txids)?, opt_into_json(block_hash)?];
         let hex: String = self.call("gettxoutproof", handle_defaults(&mut args, &[null()])).await?;
@@ -622,18 +546,6 @@ pub trait RpcApi: Sized {
         .await
     }
 
-    async fn import_multi(
-        &self,
-        requests: &[json::ImportMultiRequest<'_>],
-        options: Option<&json::ImportMultiOptions>,
-    ) -> Result<Vec<json::ImportMultiResult>> {
-        let mut json_requests = Vec::with_capacity(requests.len());
-        for req in requests {
-            json_requests.push(serde_json::to_value(req)?);
-        }
-        let mut args = [json_requests.into(), opt_into_json(options)?];
-        self.call("importmulti", handle_defaults(&mut args, &[null()])).await
-    }
 
     async fn set_label(&self, address: &Address, label: &str) -> Result<()> {
         self.call("setlabel", &[address.to_string().into(), label.into()]).await
@@ -645,22 +557,9 @@ pub trait RpcApi: Sized {
     }
 
     async fn list_unspent(
-        &self,
-        minconf: Option<usize>,
-        maxconf: Option<usize>,
-        addresses: Option<&[&Address]>,
-        include_unsafe: Option<bool>,
-        query_options: Option<json::ListUnspentQueryOptions>,
-    ) -> Result<Vec<json::ListUnspentResultEntry>> {
-        let mut args = [
-            opt_into_json(minconf)?,
-            opt_into_json(maxconf)?,
-            opt_into_json(addresses)?,
-            opt_into_json(include_unsafe)?,
-            opt_into_json(query_options)?,
-        ];
-        let defaults = [into_json(0)?, into_json(9999999)?, empty_arr(), into_json(true)?, null()];
-        self.call("listunspent", handle_defaults(&mut args, &defaults)).await
+        &self
+    ) -> Result<Vec<json::ListUnspent>> {
+        self.call("listunspent", &[]).await
     }
 
     /// To unlock, use [unlock_unspent].
@@ -682,118 +581,68 @@ pub trait RpcApi: Sized {
 
     async fn list_received_by_address(
         &self,
-        address_filter: Option<&Address>,
-        minconf: Option<u32>,
-        include_empty: Option<bool>,
-        include_watchonly: Option<bool>,
-    ) -> Result<Vec<json::ListReceivedByAddressResult>> {
-        let mut args = [
-            opt_into_json(minconf)?,
-            opt_into_json(include_empty)?,
-            opt_into_json(include_watchonly)?,
-            opt_into_json(address_filter)?,
-        ];
-        let defaults = [1.into(), false.into(), false.into(), null()];
-        self.call("listreceivedbyaddress", handle_defaults(&mut args, &defaults)).await
+    ) -> Result<Vec<json::ListReceivedByAddress>> {
+        self.call("listreceivedbyaddress", &[]).await
     }
 
     async fn create_raw_transaction_hex(
         &self,
-        utxos: &[json::CreateRawTransactionInput],
-        outs: &HashMap<String, Amount>,
-        locktime: Option<i64>,
-        replaceable: Option<bool>,
+        inputs: &[json::RawTransactionInput],
+        outputs: &[json::RawTransactionOutput],
     ) -> Result<String> {
-        let outs_converted = serde_json::Map::from_iter(
-            outs.iter().map(|(k, v)| (k.clone(), serde_json::Value::from(v.to_btc()))),
-        );
-        let mut args = [
-            into_json(utxos)?,
-            into_json(outs_converted)?,
-            opt_into_json(locktime)?,
-            opt_into_json(replaceable)?,
+        let args = [
+            into_json(inputs)?,
+            into_json(outputs)?,
         ];
-        let defaults = [into_json(0i64)?, null()];
-        self.call("createrawtransaction", handle_defaults(&mut args, &defaults)).await
+        self.call("createrawtransaction", &args).await
     }
 
     async fn create_raw_transaction(
         &self,
-        utxos: &[json::CreateRawTransactionInput],
-        outs: &HashMap<String, Amount>,
-        locktime: Option<i64>,
-        replaceable: Option<bool>,
+        inputs: &[json::RawTransactionInput],
+        outputs: &[json::RawTransactionOutput],
     ) -> Result<Transaction> {
-        let hex: String =
-            self.create_raw_transaction_hex(utxos, outs, locktime, replaceable).await?;
+        let hex: String = self.create_raw_transaction_hex(inputs, outputs).await?;
         let bytes: Vec<u8> = FromHex::from_hex(&hex)?;
-        Ok(bitcoin::consensus::encode::deserialize(&bytes)?)
+        Ok(corepc_types::bitcoin::consensus::encode::deserialize(&bytes)?)
     }
 
     async fn fund_raw_transaction<R: RawTx>(
         &self,
         tx: R,
-        options: Option<&json::FundRawTransactionOptions>,
-        is_witness: Option<bool>,
-    ) -> Result<json::FundRawTransactionResult>
+    ) -> Result<json::FundRawTransaction>
     where
         R: Sync + Send,
     {
-        let mut args = [tx.raw_hex().into(), opt_into_json(options)?, opt_into_json(is_witness)?];
-        let defaults = [empty_obj(), null()];
-        self.call("fundrawtransaction", handle_defaults(&mut args, &defaults)).await
+        let args = [tx.raw_hex().into()];
+        self.call("fundrawtransaction", &args).await
     }
 
-    #[deprecated]
-    async fn sign_raw_transaction<R: RawTx>(
-        &self,
-        tx: R,
-        utxos: Option<&[json::SignRawTransactionInput]>,
-        private_keys: Option<&[PrivateKey]>,
-        sighash_type: Option<json::SigHashType>,
-    ) -> Result<json::SignRawTransactionResult>
-    where
-        R: Sync + Send,
-    {
-        let mut args = [
-            tx.raw_hex().into(),
-            opt_into_json(utxos)?,
-            opt_into_json(private_keys)?,
-            opt_into_json(sighash_type)?,
-        ];
-        let defaults = [empty_arr(), empty_arr(), null()];
-        self.call("signrawtransaction", handle_defaults(&mut args, &defaults)).await
-    }
 
     async fn sign_raw_transaction_with_wallet<R: RawTx>(
         &self,
         tx: R,
-        utxos: Option<&[json::SignRawTransactionInput]>,
-        sighash_type: Option<json::SigHashType>,
-    ) -> Result<json::SignRawTransactionResult>
+    ) -> Result<json::SignRawTransaction>
     where
         R: Sync + Send,
     {
-        let mut args = [tx.raw_hex().into(), opt_into_json(utxos)?, opt_into_json(sighash_type)?];
-        let defaults = [empty_arr(), null()];
-        self.call("signrawtransactionwithwallet", handle_defaults(&mut args, &defaults)).await
+        let args = [tx.raw_hex().into()];
+        self.call("signrawtransactionwithwallet", &args).await
     }
 
     async fn sign_raw_transaction_with_key<R: RawTx>(
         &self,
         tx: R,
-        privkeys: &[PrivateKey],
-        prevtxs: Option<&[json::SignRawTransactionInput]>,
-        sighash_type: Option<json::SigHashType>,
-    ) -> Result<json::SignRawTransactionResult>
+        keys: &[PrivateKey],
+    ) -> Result<json::SignRawTransaction>
     where
         R: Sync + Send,
     {
+        let keys = keys.iter().map(|k| format!("{}", k)).collect::<Vec<String>>();
+
         let mut args = [
             tx.raw_hex().into(),
-            into_json(privkeys)?,
-            opt_into_json(prevtxs)?,
-            opt_into_json(sighash_type)?,
+            into_json(keys)?,
         ];
         let defaults = [empty_arr(), null()];
         self.call("signrawtransactionwithkey", handle_defaults(&mut args, &defaults)).await
@@ -802,7 +651,7 @@ pub trait RpcApi: Sized {
     async fn test_mempool_accept<R: RawTx>(
         &self,
         rawtxs: &[R],
-    ) -> Result<Vec<json::TestMempoolAcceptResult>>
+    ) -> Result<Vec<json::TestMempoolAccept>>
     where
         R: Sync + Send,
     {
@@ -829,12 +678,18 @@ pub trait RpcApi: Sized {
     async fn get_new_address(
         &self,
         label: Option<&str>,
-        address_type: Option<json::AddressType>,
+        address_type: Option<corepc_types::bitcoin::AddressType>,
     ) -> Result<Address<NetworkUnchecked>> {
-        self.call("getnewaddress", &[opt_into_json(label)?, opt_into_json(address_type)?]).await
+        match (label, address_type) {
+            (Some(label), Some(ty)) =>
+                self.call("getnewaddress", &[into_json(label)?, into_json(ty.to_string())?]).await,
+            (Some(label), None) => self.call("getnewaddress", &[into_json(label)?]).await,
+            (None, Some(ty)) => self.call("getnewaddress", &["".into(), into_json(ty.to_string())?]).await,
+            (None, None) => self.call("getnewaddress", &[]).await,
+        }
     }
 
-    async fn get_address_info(&self, address: &Address) -> Result<json::GetAddressInfoResult> {
+    async fn get_address_info(&self, address: &Address) -> Result<json::GetAddressInfo> {
         self.call("getaddressinfo", &[address.to_string().into()]).await
     }
 
@@ -845,7 +700,7 @@ pub trait RpcApi: Sized {
         &self,
         block_num: u64,
         address: &Address,
-    ) -> Result<Vec<bitcoin::BlockHash>> {
+    ) -> Result<Vec<corepc_types::bitcoin::BlockHash>> {
         self.call("generatetoaddress", &[block_num.into(), address.to_string().into()]).await
     }
 
@@ -855,27 +710,30 @@ pub trait RpcApi: Sized {
         &self,
         block_num: u64,
         maxtries: Option<u64>,
-    ) -> Result<Vec<bitcoin::BlockHash>> {
+    ) -> Result<Vec<corepc_types::bitcoin::BlockHash>> {
         self.call("generate", &[block_num.into(), opt_into_json(maxtries)?]).await
     }
 
     /// Mark a block as invalid by `block_hash`
-    async fn invalidate_block(&self, block_hash: &bitcoin::BlockHash) -> Result<()> {
+    async fn invalidate_block(&self, block_hash: &corepc_types::bitcoin::BlockHash) -> Result<()> {
         self.call("invalidateblock", &[into_json(block_hash)?]).await
     }
 
     /// Mark a block as valid by `block_hash`
-    async fn reconsider_block(&self, block_hash: &bitcoin::BlockHash) -> Result<()> {
+    async fn reconsider_block(&self, block_hash: &corepc_types::bitcoin::BlockHash) -> Result<()> {
         self.call("reconsiderblock", &[into_json(block_hash)?]).await
     }
 
     /// Get txids of all transactions in a memory pool
-    async fn get_raw_mempool(&self) -> Result<Vec<bitcoin::Txid>> {
+    async fn get_raw_mempool(&self) -> Result<Vec<corepc_types::bitcoin::Txid>> {
         self.call("getrawmempool", &[]).await
     }
 
     /// Get mempool data for given transaction
-    async fn get_mempool_entry(&self, txid: &bitcoin::Txid) -> Result<json::GetMempoolEntryResult> {
+    async fn get_mempool_entry(
+        &self,
+        txid: &corepc_types::bitcoin::Txid,
+    ) -> Result<json::GetMempoolEntry> {
         self.call("getmempoolentry", &[into_json(txid)?]).await
     }
 
@@ -883,38 +741,15 @@ pub trait RpcApi: Sized {
         &self,
         address: &Address,
         amount: Amount,
-        comment: Option<&str>,
-        comment_to: Option<&str>,
-        subtract_fee: Option<bool>,
-        replaceable: Option<bool>,
-        confirmation_target: Option<u32>,
-        estimate_mode: Option<json::EstimateMode>,
-    ) -> Result<bitcoin::Txid> {
-        let mut args = [
-            address.to_string().into(),
-            into_json(amount.to_btc())?,
-            opt_into_json(comment)?,
-            opt_into_json(comment_to)?,
-            opt_into_json(subtract_fee)?,
-            opt_into_json(replaceable)?,
-            opt_into_json(confirmation_target)?,
-            opt_into_json(estimate_mode)?,
-        ];
-        self.call(
-            "sendtoaddress",
-            handle_defaults(
-                &mut args,
-                &["".into(), "".into(), false.into(), false.into(), 6.into(), null()],
-            ),
-        )
-        .await
+    ) -> Result<json::SendToAddress> {
+        self.call("sendtoaddress", &[address.to_string().into(), into_json(amount.to_btc())?]).await
     }
 
     /// Returns data about each connected network node as an array of
     /// [`PeerInfo`][]
     ///
     /// [`PeerInfo`]: net/struct.PeerInfo.html
-    async fn get_peer_info(&self) -> Result<Vec<json::GetPeerInfoResult>> {
+    async fn get_peer_info(&self) -> Result<Vec<json::GetPeerInfo>> {
         self.call("getpeerinfo", &[]).await
     }
 
@@ -930,7 +765,7 @@ pub trait RpcApi: Sized {
         self.call("ping", &[]).await
     }
 
-    async fn send_raw_transaction<R: RawTx>(&self, tx: R) -> Result<bitcoin::Txid>
+    async fn send_raw_transaction<R: RawTx>(&self, tx: R) -> Result<corepc_types::bitcoin::Txid>
     where
         R: Sync + Send,
     {
@@ -939,67 +774,22 @@ pub trait RpcApi: Sized {
 
     async fn estimate_smart_fee(
         &self,
-        conf_target: u16,
-        estimate_mode: Option<json::EstimateMode>,
-    ) -> Result<json::EstimateSmartFeeResult> {
-        let mut args = [into_json(conf_target)?, opt_into_json(estimate_mode)?];
-        self.call("estimatesmartfee", handle_defaults(&mut args, &[null()])).await
+        blocks: u32,
+    ) -> Result<json::EstimateSmartFee> {
+        self.call("estimatesmartfee", &[into_json(blocks)?]).await
     }
 
-    /// Waits for a specific new block and returns useful info about it.
-    /// Returns the current block on timeout or exit.
-    ///
-    /// # Arguments
-    ///
-    /// 1. `timeout`: Time in milliseconds to wait for a response. 0
-    /// indicates no timeout.
-    async fn wait_for_new_block(&self, timeout: u64) -> Result<json::BlockRef> {
-        self.call("waitfornewblock", &[into_json(timeout)?]).await
-    }
-
-    /// Waits for a specific new block and returns useful info about it.
-    /// Returns the current block on timeout or exit.
-    ///
-    /// # Arguments
-    ///
-    /// 1. `blockhash`: Block hash to wait for.
-    /// 2. `timeout`: Time in milliseconds to wait for a response. 0
-    /// indicates no timeout.
-    async fn wait_for_block(
-        &self,
-        blockhash: &bitcoin::BlockHash,
-        timeout: u64,
-    ) -> Result<json::BlockRef> {
-        let args = [into_json(blockhash)?, into_json(timeout)?];
-        self.call("waitforblock", &args).await
-    }
 
     async fn wallet_create_funded_psbt(
         &self,
-        inputs: &[json::CreateRawTransactionInput],
-        outputs: &HashMap<String, Amount>,
-        locktime: Option<i64>,
-        options: Option<json::WalletCreateFundedPsbtOptions>,
-        bip32derivs: Option<bool>,
-    ) -> Result<json::WalletCreateFundedPsbtResult> {
-        let outputs_converted = serde_json::Map::from_iter(
-            outputs.iter().map(|(k, v)| (k.clone(), serde_json::Value::from(v.to_btc()))),
-        );
-        let mut args = [
-            into_json(inputs)?,
-            into_json(outputs_converted)?,
-            opt_into_json(locktime)?,
-            opt_into_json(options)?,
-            opt_into_json(bip32derivs)?,
-        ];
-        self.call(
-            "walletcreatefundedpsbt",
-            handle_defaults(&mut args, &[0.into(), serde_json::Map::new().into(), false.into()]),
-        )
-        .await
+        inputs: &[json::WalletCreateFundedPsbt],
+        outputs: &Vec<BTreeMap<Address, Amount>>,
+    ) -> Result<json::WalletCreateFundedPsbt> {
+        let args = [into_json(inputs)?, into_json(outputs)?];
+        self.call("walletcreatefundedpsbt", &args).await
     }
 
-    async fn get_descriptor_info(&self, desc: &str) -> Result<json::GetDescriptorInfoResult> {
+    async fn get_descriptor_info(&self, desc: &str) -> Result<json::GetDescriptorInfo> {
         self.call("getdescriptorinfo", &[desc.to_string().into()]).await
     }
 
@@ -1007,11 +797,7 @@ pub trait RpcApi: Sized {
         self.call("combinepsbt", &[into_json(psbts)?]).await
     }
 
-    async fn finalize_psbt(
-        &self,
-        psbt: &str,
-        extract: Option<bool>,
-    ) -> Result<json::FinalizePsbtResult> {
+    async fn finalize_psbt(&self, psbt: &str, extract: Option<bool>) -> Result<json::FinalizePsbt> {
         let mut args = [into_json(psbt)?, opt_into_json(extract)?];
         self.call("finalizepsbt", handle_defaults(&mut args, &[true.into()])).await
     }
@@ -1044,13 +830,13 @@ pub trait RpcApi: Sized {
 
     /// Returns statistics about the unspent transaction output set.
     /// This call may take some time.
-    async fn get_tx_out_set_info(&self) -> Result<json::GetTxOutSetInfoResult> {
+    async fn get_tx_out_set_info(&self) -> Result<json::GetTxOutSetInfo> {
         self.call("gettxoutsetinfo", &[]).await
     }
 
     /// Returns information about network traffic, including bytes in, bytes out,
     /// and current time.
-    async fn get_net_totals(&self) -> Result<json::GetNetTotalsResult> {
+    async fn get_net_totals(&self) -> Result<json::GetNetTotals> {
         self.call("getnettotals", &[]).await
     }
 
@@ -1065,12 +851,6 @@ pub trait RpcApi: Sized {
         self.call("uptime", &[]).await
     }
 
-    async fn scan_tx_out_set_blocking(
-        &self,
-        descriptors: &[json::ScanTxOutRequest],
-    ) -> Result<json::ScanTxOutResult> {
-        self.call("scantxoutset", &["start".into(), into_json(descriptors)?]).await
-    }
 }
 
 /// Client implements a JSON-RPC client for the Bitcoin Core daemon or compatible APIs.
@@ -1165,15 +945,15 @@ fn log_response(cmd: &str, resp: &Result<jsonrpc::Response>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bitcoin;
+    use corepc_types::bitcoin;
     use serde_json;
     use tokio;
 
     #[tokio::test]
     async fn test_raw_tx() {
-        use bitcoin::consensus::encode;
+        use corepc_types::bitcoin::consensus::encode;
         let client = Client::new("http://localhost/".into(), Auth::None).await.unwrap();
-        let tx: bitcoin::Transaction = encode::deserialize(&Vec::<u8>::from_hex("0200000001586bd02815cf5faabfec986a4e50d25dbee089bd2758621e61c5fab06c334af0000000006b483045022100e85425f6d7c589972ee061413bcf08dc8c8e589ce37b217535a42af924f0e4d602205c9ba9cb14ef15513c9d946fa1c4b797883e748e8c32171bdf6166583946e35c012103dae30a4d7870cd87b45dd53e6012f71318fdd059c1c2623b8cc73f8af287bb2dfeffffff021dc4260c010000001976a914f602e88b2b5901d8aab15ebe4a97cf92ec6e03b388ac00e1f505000000001976a914687ffeffe8cf4e4c038da46a9b1d37db385a472d88acfd211500").unwrap()).unwrap();
+        let tx: corepc_types::bitcoin::Transaction = encode::deserialize(&Vec::<u8>::from_hex("0200000001586bd02815cf5faabfec986a4e50d25dbee089bd2758621e61c5fab06c334af0000000006b483045022100e85425f6d7c589972ee061413bcf08dc8c8e589ce37b217535a42af924f0e4d602205c9ba9cb14ef15513c9d946fa1c4b797883e748e8c32171bdf6166583946e35c012103dae30a4d7870cd87b45dd53e6012f71318fdd059c1c2623b8cc73f8af287bb2dfeffffff021dc4260c010000001976a914f602e88b2b5901d8aab15ebe4a97cf92ec6e03b388ac00e1f505000000001976a914687ffeffe8cf4e4c038da46a9b1d37db385a472d88acfd211500").unwrap()).unwrap();
 
         assert!(client.send_raw_transaction(&tx).await.is_err());
         assert!(client.send_raw_transaction(&encode::serialize(&tx)).await.is_err());

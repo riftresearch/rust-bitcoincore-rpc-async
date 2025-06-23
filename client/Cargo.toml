@@ -20,7 +20,7 @@ name = "bitcoincore_rpc_async"
 path = "src/lib.rs"
 
 [dependencies]
-bitcoincore-rpc-json = { path = "../json" } 
+corepc-types = {git = "https://github.com/riftresearch/corepc", rev = "ae028263e24da26fed31a9c32232ecdefcb1cb37"}
 async-trait = "0.1.42"
 log = "0.4.5"
 jsonrpc-async = "2.0.2"
