@@ -1,9 +1,0 @@
-[package]
-name = "test_scriptsig"
-version = "0.1.0"
-edition = "2024"
-
-[workspace]
-
-[dependencies]
-corepc-types = {git = "https://github.com/riftresearch/corepc", rev = "ae028263e24da26fed31a9c32232ecdefcb1cb37"}
